@@ -1,0 +1,19 @@
+{
+  "name": "hf-cortex",
+  "version": "0.1.0",
+  "description": "HF-CORTEX Protocol v1.0 – HyperFractal Cognitive Data Representation Protocol",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "keywords": [
+    "hf-cortex",
+    "hyperfractal",
+    "llm",
+    "protocol",
+    "ai"
+  ],
+  "author": "a",
+  "license": "MIT"
+}
