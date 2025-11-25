@@ -1,7 +1,7 @@
 {
   "name": "hf-cortex",
-  "version": "0.1.0",
-  "description": "HF-CORTEX Protocol v1.0 – HyperFractal Cognitive Data Representation Protocol",
+  "version": "0.2.0",
+  "description": "HF-CORTEX Protocol 1.0 Stable – reference JS toolkit for cognitive packets",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -12,7 +12,8 @@
     "hyperfractal",
     "llm",
     "protocol",
-    "ai"
+    "ai",
+    "agents"
   ],
   "author": "Alexander Mozhanov",
   "license": "MIT"

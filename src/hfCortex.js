@@ -1,172 +1,241 @@
 // src/hfCortex.js
-// HF-CORTEX Protocol v1.0 — ядро для Node.js (ESM)
+// HF-CORTEX Core 1.1 + Sales-Rozatti 1.0 (reference JS helpers)
 
 import crypto from "crypto";
 
 /**
- * Простейшая оценка фрактального слоя и плотности по содержимому.
- * Это можно будет заменить более умной метрикой.
+ * Каноническая оценка заголовка H (L и D) по содержимому C.
+ * L: round(log2(N)), где N — байты UTF-8 compact JSON
+ * D: упрощённый fallback — доля ненулевых полей верхнего уровня C
  */
-export function estimateHeaderFromContent(content) {
-  const json = JSON.stringify(content ?? {});
-  const len = Math.max(json.length, 1);
+export function computeHeaderFromContent(content) {
+  const C = content ?? {};
+  const json = JSON.stringify(C); // compact JSON по умолчанию
+  const bytes = Buffer.byteLength(json, "utf8");
+  const N = Math.max(bytes, 1);
 
-  const L = Math.round(Math.log2(len));        // логарифмический масштаб
-  const D = Math.min(1, Math.max(0.4, len / 2000)); // грубая оценка плотности
+  const L = Math.round(Math.log2(N));
+
+  const keys = Object.keys(C);
+  let D = 0;
+  if (keys.length > 0) {
+    const nonNull = keys.filter((k) => C[k] !== null && C[k] !== undefined).length;
+    D = nonNull / keys.length;
+  }
 
   return { L, D };
 }
 
 /**
- * Конструктор базового HF-CORTEX пакета.
+ * Базовый конструктор HF-CORTEX Core 1.1 пакета.
+ * Ничего доменного, только Core.
  */
-export function makeCortexPacket({
-  ver = "hf-cortex-1.0",
-  id = null,
+export function makeCorePacket({
+  ver = "hf-cortex-core-1.1",
+  id,
   dom = "generic",
-  header = {},
-  content = {},
-  structure = [],
-  relations = {},
-  meaning = {},
-}) {
-  const baseHeader = {
-    L: 0,
-    E: 0,
-    D: 0.7,
-    T: "auto",
-    S: 0.9,
-    U: 0.1,
-    tags: [],
-  };
+  H,
+  C = {},
+  M,
+  S,
+  R,
+  ext,
+} = {}) {
+  // Заголовок: если не передан — считаем по C
+  const baseHeader = H && Object.keys(H).length ? { ...H } : computeHeaderFromContent(C);
 
-  // если явный header не передан — оценим по content
-  let H;
-  if (!header || Object.keys(header).length === 0) {
-    const { L, D } = estimateHeaderFromContent(content);
-    H = { ...baseHeader, L, D };
-  } else {
-    H = { ...baseHeader, ...header };
+  if (typeof baseHeader.L !== "number") {
+    const { L } = computeHeaderFromContent(C);
+    baseHeader.L = L;
   }
-
-  const M = {
-    role: "generic",
-    priority: 0.5,
-    action: "interpret",
-    goal: "",
-    rules: [],
-    constraints: [],
-    ...meaning,
-  };
+  if (typeof baseHeader.D !== "number") {
+    const { D } = computeHeaderFromContent(C);
+    baseHeader.D = D;
+  }
 
   const packet = {
     ver,
-    id: id ?? "cortex_" + crypto.randomUUID(),
+    id: id ?? `cortex_${crypto.randomUUID()}`,
     dom,
-    H,
-    S: structure,
-    C: content,
-    R: relations,
-    M,
+    H: baseHeader,
+    C,
   };
+
+  if (M) packet.M = M;
+  if (S) packet.S = S;
+  if (R) packet.R = R;
+  if (ext) packet._ext = ext;
 
   return packet;
 }
 
 /**
- * Специализированный хелпер: лид + офферы (кейс Rozatti).
- * Это пример доменного профиля, позже можно вынести в "дескрипторы".
+ * HF-CORTEX Sales Profile: Rozatti 1.0 (Stable)
+ * Формат:
+ *   C.oem: string
+ *   C.lead: [full_name, phone_e164, city, comment, source]
+ *   C.offers: [ [supplier_label, price_rub, delivery_days, description], ... ]
+ *   C.meta: optional object
  */
-export function makeLeadOffersPacket({
-  dom = "bot.rozatti",
+export function makeRozattiSalesPacket({
+  id,
+  oem,
   lead,
   offers,
-  goal = "Выбрать лучший вариант по OEM и объяснить клиенту.",
-  tags = [],
-  extraHeader = {},
-  extraMeaning = {},
-}) {
-  if (!lead) throw new Error("makeLeadOffersPacket: lead is required");
-  if (!Array.isArray(offers)) throw new Error("makeLeadOffersPacket: offers must be array");
+  meta,
+  meaning,
+  header,
+} = {}) {
+  if (!oem) {
+    throw new Error("makeRozattiSalesPacket: oem is required");
+  }
+  if (!Array.isArray(lead) || lead.length !== 5) {
+    throw new Error("makeRozattiSalesPacket: lead must be array of length 5");
+  }
+  if (!Array.isArray(offers)) {
+    throw new Error("makeRozattiSalesPacket: offers must be an array (possibly empty)");
+  }
 
-  const content = {
-    lead: [
-      lead.id ?? null,
-      lead.name ?? null,
-      lead.phone ?? null,
-      lead.city ?? null,
-      lead.carLabel ?? null,
-      lead.vin ?? null,
-    ],
-    offers: offers.map((o) => [
-      o.oem ?? null,
-      o.brandCode ?? null,
-      o.priceRub ?? null,
-      o.deliveryDays ?? null,
-    ]),
+  const C = {
+    oem,
+    lead,
+    offers,
   };
 
-  const structure = [
-    { id: "root", children: ["lead", "offers"], role: "context" },
-    { id: "lead", children: [], role: "actor" },
-    { id: "offers", children: [], role: "options" },
-  ];
+  if (meta && typeof meta === "object") {
+    C.meta = meta;
+  }
 
-  const relations = {
-    refs: {
-      bitrix_lead_id: lead.id ?? null,
-    },
+  // Встраиваем профиль в H._ext.domain.profile
+  const H = {
+    ...(header ?? {}),
   };
 
-  const header = {
-    T: "f-lead+offers",
-    tags: ["lead", "offers", ...(tags ?? [])],
-    ...extraHeader,
+  const hExt = { ...(H._ext ?? {}) };
+  hExt.domain = {
+    ...(hExt.domain ?? {}),
+    profile: "hf-cortex-sales-rozatti-1.0",
   };
+  H._ext = hExt;
 
-  const meaning = {
+  const defaultMeaning = {
     role: "offer_eval",
-    priority: 0.8,
     action: "interpret",
-    goal,
+    goal: "Объяснить варианты и рекомендовать лучший по цене и сроку поставки.",
     rules: [
       "Отвечай на русском языке.",
-      "Не указывай название склада и наличие, только цену и срок.",
-      "Не выдумывай цены и сроки.",
+      "Используй только офферы из C.offers.",
+      "Не указывай названия складов и брендов, если их нет в данных.",
     ],
     constraints: [
-      "Если данных недостаточно — честно скажи об этом.",
+      "Не придумывай новые офферы.",
+      "Не изменяй OEM.",
+      "Если offers пустой массив — честно скажи, что предложений нет.",
     ],
-    ...extraMeaning,
   };
 
-  return makeCortexPacket({
-    dom,
-    header,
-    content,
-    structure,
-    relations,
-    meaning,
+  const M = {
+    ...defaultMeaning,
+    ...(meaning ?? {}),
+  };
+
+  return makeCorePacket({
+    ver: "hf-cortex-core-1.1",
+    id,
+    dom: "sales.rozatti",
+    H,
+    C,
+    M,
   });
 }
 
 /**
- * Утилита: валидация базовой формы HF-CORTEX пакета.
- * Очень лёгкая, без жёсткой схемы — пригодится для логов/тестов.
+ * Лёгкая валидация Core пакета.
  */
-export function validateCortexPacket(packet) {
+export function validateCorePacket(packet) {
   const errors = [];
 
   if (!packet || typeof packet !== "object") {
     errors.push("packet must be an object");
     return errors;
   }
-  if (typeof packet.ver !== "string") errors.push("ver must be string");
+
+  if (packet.ver !== "hf-cortex-core-1.1") {
+    errors.push(`ver must be 'hf-cortex-core-1.1', got ${JSON.stringify(packet.ver)}`);
+  }
   if (typeof packet.id !== "string") errors.push("id must be string");
   if (typeof packet.dom !== "string") errors.push("dom must be string");
-  if (!packet.H || typeof packet.H !== "object") errors.push("H (header) is required");
-  if (!("C" in packet)) errors.push("C (content) is required");
-  if (!("M" in packet)) errors.push("M (meaning) is required");
+
+  if (!packet.H || typeof packet.H !== "object") {
+    errors.push("H (header) is required and must be object");
+  } else {
+    if (typeof packet.H.L !== "number") errors.push("H.L must be number");
+    if (typeof packet.H.D !== "number") {
+      errors.push("H.D must be number");
+    } else if (packet.H.D < 0 || packet.H.D > 1) {
+      errors.push("H.D must be in [0,1]");
+    }
+  }
+
+  if (!packet.C || typeof packet.C !== "object") {
+    errors.push("C (content) is required and must be object");
+  }
+
+  return errors;
+}
+
+/**
+ * Валидация Rozatti профиля поверх Core.
+ */
+export function validateRozattiPacket(packet) {
+  const errors = [...validateCorePacket(packet)];
+
+  if (packet.dom !== "sales.rozatti") {
+    errors.push(`dom must be 'sales.rozatti', got ${JSON.stringify(packet.dom)}`);
+  }
+
+  const H = packet.H ?? {};
+  const ext = H._ext ?? {};
+  const domain = ext.domain ?? {};
+  if (domain.profile !== "hf-cortex-sales-rozatti-1.0") {
+    errors.push(
+      `_ext.domain.profile must be 'hf-cortex-sales-rozatti-1.0', got ${JSON.stringify(
+        domain.profile,
+      )}`,
+    );
+  }
+
+  const C = packet.C ?? {};
+  if (typeof C.oem !== "string" || !C.oem) {
+    errors.push("C.oem must be non-empty string");
+  }
+  if (!Array.isArray(C.lead) || C.lead.length !== 5) {
+    errors.push("C.lead must be array of length 5");
+  }
+
+  if (!Array.isArray(C.offers)) {
+    errors.push("C.offers must be an array (possibly empty)");
+  } else {
+    C.offers.forEach((o, idx) => {
+      if (!Array.isArray(o) || o.length !== 4) {
+        errors.push(`C.offers[${idx}] must be array of length 4`);
+        return;
+      }
+      const [supplier_label, price_rub, delivery_days, description] = o;
+      if (typeof supplier_label !== "string") {
+        errors.push(`C.offers[${idx}][0] (supplier_label) must be string`);
+      }
+      if (typeof price_rub !== "number") {
+        errors.push(`C.offers[${idx}][1] (price_rub) must be number`);
+      }
+      if (!Number.isFinite(delivery_days)) {
+        errors.push(`C.offers[${idx}][2] (delivery_days) must be finite number`);
+      }
+      if (typeof description !== "string") {
+        errors.push(`C.offers[${idx}][3] (description) must be string`);
+      }
+    });
+  }
 
   return errors;
 }
