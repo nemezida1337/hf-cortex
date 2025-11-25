@@ -1,153 +1,220 @@
-# HF‑CORTEX — Open Cognitive Packet Protocol  
-**Version:** 1.0 (Stable)  
-**Author:** Mozhanov Aleksandr Mikhaylovich  
-**Repository:** https://github.com/nemezida1337/hf-cortex  
+# hf-cortex · Official HF-CORTEX Core 1.1 SDK  
+[![npm](https://img.shields.io/npm/v/hf-cortex)](https://npmjs.com/package/hf-cortex)
+
+**The protocol that killed LLM hallucinations** — now with an official JavaScript SDK.
+
+This package implements:
+
+- **HF-CORTEX Core 1.1** — a base cognitive packet protocol for LLM agents  
+- **Rozatti Sales Profile 1.0** — a production profile for OEM auto parts selection  
+- **enforceCortex()** — a strict LLM output validator (zero-hallucination)
 
 ---
 
-## 🔥 What is HF‑CORTEX?
+Русская версия ниже 👇
 
-HF‑CORTEX is an **open standard** for structured cognitive packets designed for LLM‑agents, reasoning systems and production AI pipelines.
+Этот пакет реализует:
 
-It solves the core problem of modern LLM architectures:
-
-> **LLMs need structured, deterministic, context‑aware packets — not raw text.**
-
-HF‑CORTEX provides that structure through a minimal **Core**, domain‑specific **Profiles**, and universal **Error Packets**.
-
-The protocol is already used in production (Rozatti automotive sales bot).
+- **HF-CORTEX Core 1.1** — базовый когнитивный пакет для LLM-агентов  
+- **Rozatti Sales Profile 1.0** — боевой профиль для подбора автозапчастей по OEM  
+- **enforceCortex()** — жёсткий валидатор вывода LLM (zero-hallucination)
 
 ---
 
-## 📦 HF‑CORTEX Components
+## 🚀 Installation
 
-### 1. **Core Protocol 1.1 (Stable)**
-Defines the universal packet:
-
-- `H` — header with scale (`L`) and density (`D`)
-- `C` — content (domain data)
-- `M` — meaning / cognitive contract
-- `S` — structure tree
-- `R` — relations
-- `_ext` — extensions
-
-📄 Spec: `spec/HF-CORTEX-Core-1.1-Stable.md`
+```bash
+npm install hf-cortex
+# или
+pnpm add hf-cortex
+# или
+yarn add hf-cortex
+```
 
 ---
 
-### 2. **Error Packet 1.0 (Stable)**  
-Uniform error format for all agents and tools:
+## ⚙ Quick Start · Rozatti Sales Profile
 
-- machine-readable error codes  
-- human-readable explanation  
-- recovery hints (`retry`, `suggested_fix`)  
-- vendor extension namespace  
+```js
+import { Rozatti, enforceCortex } from "hf-cortex";
 
-📄 Spec: `spec/HF-CORTEX-ERROR-1.0-Stable.md`
+// 1. Собираем HF-CORTEX пакет для запроса по OEM
+const packet = Rozatti.make({
+  oem: "A2128300318",
+  lead: ["Иван Петров", "+79031234567", "Москва", "", "whatsapp"],
+  offers: [
+    ["1", 8100, 18, "оригинал"],
+    ["2", 9700, 7, "аналог"]
+  ]
+});
 
----
+// 2. Генерируем промпт для LLM
+const prompt = Rozatti.prompt(packet);
 
-### 3. **Sales Profile: Rozatti 1.0 (Stable)**  
-Domain specification used by the production auto‑parts sales bot.
+// 3. Отправляем в любую LLM (Grok / Claude / Gemini / OpenAI)
+const rawOutput = await llm.call(prompt);
 
-Defines:
-
-- OEM routing  
-- strict offer tuples  
-- strict lead tuples  
-- zero hallucination policy  
-- explicit rule for empty offers  
-
-📄 Spec: `spec/HF-CORTEX-Sales-Rozatti-1.0-Stable.md`
-
----
-
-## 🧠 Why HF‑CORTEX?
-
-### ✓ Designed for LLM‑agents  
-Clear roles, goals, constraints (`M` block).
-
-### ✓ Zero‑hallucination profiles  
-Perfect for sales, CRM, medical and legal systems.
-
-### ✓ Deterministic Header  
-`L` and `D` metrics give instant signal of packet size + information density.
-
-### ✓ Extensible  
-Through `_ext.domain`, `_ext.metrics`, `_ext.vendor`.
-
-### ✓ Wire‑compatible and future‑proof  
-Like protobuf / JSON‑RPC / MCP, but tailored for LLMs.
+// 4. Жёстко валидируем ответ как HF-CORTEX пакет
+const result = enforceCortex(rawOutput, "rozatti");
+// Если здесь нет ошибки — галлюцинаций по офферам нет физически
+```
 
 ---
 
-## 📊 Packet Example
+## 🧠 Core API
 
-```jsonc
-{
-  "ver": "hf-cortex-core-1.1",
-  "id": "pkt-002",
-  "dom": "sales.rozatti",
+```js
+import {
+  HF_CORTEX_VERSION,
+  HF_CORTEX_SPEC_URL,
+  computeHeaderFromContent,
+  makeCorePacket,
+  validateCorePacket,
+  enforceCortex,
+} from "hf-cortex";
+```
 
-  "H": { "L": 7, "D": 0.7 },
+### `makeCorePacket(opts)`
 
-  "C": {
-    "oem": "A2128300318",
-    "lead": ["Иван Петров", "+79031234567", "Москва", "", "whatsapp"],
-    "offers": [
-      ["1", 8100, 18, "вариант 1"],
-      ["2", 9700, 7, "вариант 2"]
-    ]
-  },
+Собирает базовый HF-CORTEX пакет:
 
-  "_ext": {
-    "domain": {
-      "profile": "hf-cortex-sales-rozatti-1.0"
-    }
-  }
+- автоматически считает `H.L` и `H.D` из `C`, если `H` не задан;
+- генерирует `id`, если не передан;
+- принимает опциональные `M`, `S`, `R`, `_ext`.
+
+```js
+const packet = makeCorePacket({
+  dom: "demo.core",
+  C: { foo: 1, bar: "abc" },
+  M: { role: "demo", goal: "example" },
+});
+```
+
+### `validateCorePacket(packet, { strict })`
+
+Возвращает массив ошибок (пустой, если всё ок).
+
+- `strict: true` — запрещает любые лишние поля помимо `[ver,id,dom,H,C,M,S,R,_ext]`.
+
+```js
+const errors = validateCorePacket(packet, { strict: true });
+if (errors.length > 0) {
+  console.error("Invalid HF-CORTEX packet:", errors);
 }
 ```
 
 ---
 
-## 🚀 Roadmap
+## 🧾 Rozatti Profile API
 
-### HF‑CORTEX 1.x  
-- Reference Python SDK  
-- MessagePack binary schema  
-- Fuzz‑validator  
-- Domain profiles: dialogs, support, solar, CRM
+```js
+import {
+  Rozatti,
+  validateRozattiPacket,
+} from "hf-cortex";
+```
 
-### HF‑CORTEX 2.0  
-- Multi‑packet reasoning flows  
-- Incremental graph‑context  
-- Advanced hyperfractal metrics (E, S, U)
+### `Rozatti.make({ oem, lead, offers, meta, meaning, header })`
+
+Построить пакет профиля **Rozatti Sales 1.0**:
+
+- `lead` — строго **5 элементов**:  
+  `[full_name, phone_e164, city, comment, source]`
+- каждый `offer` — строго **4 элемента**:  
+  `[supplier_label, price_rub, delivery_days, description]`
+- автоматически прописывает профиль:  
+  `H._ext.domain.profile = "hf-cortex-sales-rozatti-1.0"`
+
+```js
+const packet = Rozatti.make({
+  oem: "A2128300318",
+  lead: ["Иван Петров", "+79031234567", "Москва", "", "whatsapp"],
+  offers: [
+    ["1", 8100, 18, "оригинал"],
+    ["2", 9700, 7, "аналог"],
+  ],
+  meta: { currency: "RUB" },
+});
+```
+
+### `Rozatti.validate(packet, { strict })`
+
+Строгая проверка, что пакет соответствует профилю:
+
+- `dom` должен быть `"sales.rozatti"`  
+- `_ext.domain.profile` — `"hf-cortex-sales-rozatti-1.0"`  
+- структура `C.oem`, `C.lead`, `C.offers`, `C.meta` — строго по профилю
+
+```js
+const errors = Rozatti.validate(packet, { strict: true });
+if (errors.length) {
+  throw new Error("Invalid Rozatti packet:
+" + errors.join("
+"));
+}
+```
 
 ---
 
-## 📄 License
+## 🛡 `enforceCortex(output, profile = "rozatti")`
 
-MIT License — open and free for commercial use.
+Универсальный хелпер для LLM-агентов:
+
+- принимает **строку** (JSON из LLM),
+- парсит,
+- валидирует как HF-CORTEX пакет (в strict-режиме),
+- кидает `Error`, если что-то не так (со ссылкой на спецификацию).
+
+```js
+import { enforceCortex } from "hf-cortex";
+
+const rawOutput = await llm.call(prompt);
+
+try {
+  const safePacket = enforceCortex(rawOutput, "rozatti");
+  // здесь safePacket гарантированно соответствует профилю
+} catch (err) {
+  console.error("LLM output rejected by HF-CORTEX:", err);
+}
+```
+
+Profiles:
+
+- `"rozatti"` — профиль Rozatti Sales 1.0  
+- `"core"` — чистый HF-CORTEX Core пакет без доменного профиля
 
 ---
 
-## 🧬 Status
+## 🧩 Creating Your Own HF-CORTEX Profile
 
-HF‑CORTEX is actively evolving and has already passed:  
-✔ Production testing  
-✔ Independent LLM code reviews (Grok, DeepSeek)  
-✔ Stability freeze for 1.0 Core, Error, Rozatti profiles  
+HF-CORTEX Core 1.1 задуман как универсальный протокол.  
+Профиль Rozatti — лишь первый пример.
+
+Чтобы создать свой профиль:
+
+1. **Определите структуру `C`**  
+2. **Выберите домен и профиль**  
+3. **Напишите makeProfilePacket()**  
+4. **Напишите validateProfilePacket()**  
+5. **Опционально — профильный prompt-шаблон**
+
+Профиль Rozatti можно использовать как референс.
 
 ---
 
-## ✉ Contact
+## 📚 Specs
 
-**Author:**  
-Mozhanov Aleksandr Mikhaylovich  
-Republic of Belarus  
-Email: mozhanovsasha@gmail.com
+- **HF-CORTEX Core 1.1 (Stable)** — `spec/HF-CORTEX-Core-1.1-Stable.md`  
+- **HF-CORTEX Error Packet 1.0** — `spec/HF-CORTEX-ERROR-1.0-Stable.md`  
+- **HF-CORTEX Sales Profile 1.0** — `spec/HF-CORTEX-Sales-Rozatti-1.0-Stable.md`
 
 ---
 
-This repository contains the **official reference specifications** of the HF‑CORTEX protocol.  
-Use it to build **deterministic, structured, production‑grade LLM‑agents**.
+## 📜 License
+## 👤 Author / Автор
+
+- Mozhanov Alexander Mikhailovich  
+- Можанов Александр Михайлович  
+- г. Гомель, Республика Беларусь
+
+MIT — свободно для коммерческого использования.

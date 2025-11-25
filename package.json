@@ -1,20 +1,33 @@
 {
   "name": "hf-cortex",
-  "version": "0.2.0",
-  "description": "HF-CORTEX Protocol 1.0 Stable – reference JS toolkit for cognitive packets",
+  "version": "1.1.0",
+  "description": "Official HF-CORTEX Core 1.1 SDK — zero-hallucination structured-output protocol for LLM agents",
   "type": "module",
   "main": "index.js",
   "exports": {
-    ".": "./index.js"
+    ".": "./index.js",
+    "./rozatti": "./index.js"
   },
   "keywords": [
     "hf-cortex",
-    "hyperfractal",
+    "structured-output",
     "llm",
+    "agent",
+    "zero-hallucination",
     "protocol",
-    "ai",
-    "agents"
+    "json",
+    "rozatti",
+    "cortex",
+    "hyperfractal"
   ],
   "author": "Alexander Mozhanov",
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nemezida1337/hf-cortex.git"
+  },
+  "homepage": "https://github.com/nemezida1337/hf-cortex",
+  "bugs": {
+    "url": "https://github.com/nemezida1337/hf-cortex/issues"
+  }
 }
